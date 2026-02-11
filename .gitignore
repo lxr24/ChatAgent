@@ -2,3 +2,4 @@ __pycache__
 models/
 vector_index/
 *.log
+.pytest_cache/
