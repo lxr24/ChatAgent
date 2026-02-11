@@ -13,7 +13,7 @@ sys.modules["langchain_community"] = _mock_embedding
 sys.modules["langchain_community.embeddings"] = _mock_embedding.embeddings
 
 from document_loader import DocumentChunk, TextSplitter
-from agent import extract_keywords, boost_results_by_keywords
+from agent import extract_keywords, boost_results_by_keywords, KEYWORD_BOOST_SCORE
 
 
 class TestExtractKeywords:
@@ -80,9 +80,9 @@ class TestBoostResults:
             (self._make_chunk("Unrelated content", chunk_id=1), 0.9),
         ]
         boosted = boost_results_by_keywords(results, ["STRING", "IntAct"])
-        # Chunk matching both keywords gets +0.10 boost
+        # Chunk matching both keywords gets +KEYWORD_BOOST_SCORE per keyword (0.05 × 2 = 0.10)
         both_score = next(s for c, s in boosted if "STRING" in c.content)
-        assert both_score == 0.7 + 0.10
+        assert both_score == 0.7 + KEYWORD_BOOST_SCORE * 2
 
     def test_empty_keywords(self):
         results = [
@@ -169,6 +169,13 @@ class TestTextSplitter:
         chunks = splitter.split_text(text)
         assert len(chunks) == 1
         assert chunks[0] == text
+
+    def test_large_text_is_split(self):
+        splitter = TextSplitter(chunk_size=1024, chunk_overlap=200)
+        # Create text larger than 1024 characters with multiple paragraphs
+        text = ("A" * 600 + "\n\n" + "B" * 600)
+        chunks = splitter.split_text(text)
+        assert len(chunks) >= 2
 
 
 class TestConfig:

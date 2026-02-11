@@ -26,14 +26,17 @@ def setup_logging():
     logger.addHandler(file_handler)
 
 
+KEYWORD_BOOST_SCORE = 0.05
+
+
 def extract_keywords(query):
     """从查询中提取关键词，用于生成多个子查询"""
     sub_queries = []
 
-    # 按中文"和"、"与"、"以及"或英文"and"、","分割
+    # 支持的分隔符：英文逗号、中文逗号、英文"and"、中文"和"/"与"/"以及"
     parts = re.split(r'[,，]|\s+and\s+|\s*和\s*|\s*与\s*|\s*以及\s*', query)
 
-    # 提取大写英文专有名词作为关键词
+    # 匹配大写开头的英文专有名词（如 "STRING"、"IntAct"、"BioGRID"）
     proper_nouns = re.findall(r'\b[A-Z][A-Za-z0-9_-]*(?:\s+[A-Z][A-Za-z0-9_-]*)*\b', query)
 
     if len(parts) > 1:
@@ -62,7 +65,7 @@ def boost_results_by_keywords(results, keywords):
         boost = 0.0
         for kw in keywords:
             if kw.lower() in content_lower:
-                boost += 0.05
+                boost += KEYWORD_BOOST_SCORE
         boosted.append((chunk, score + boost))
 
     boosted.sort(key=lambda x: x[1], reverse=True)
