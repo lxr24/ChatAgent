@@ -29,6 +29,11 @@ def setup_logging():
 KEYWORD_BOOST_SCORE = 0.05
 DIVERSITY_PENALTY = 0.02  # 来源重复惩罚
 CONTENT_LENGTH_BONUS = 0.01  # 内容长度奖励（较长内容通常更完整）
+CONTENT_LENGTH_THRESHOLD = 1000  # 内容长度归一化阈值（字符数）
+
+# 智能截断阈值
+DOC_BOUNDARY_THRESHOLD = 0.8  # 文档边界截断的最小空间利用率
+SENTENCE_BOUNDARY_THRESHOLD = 0.9  # 句子边界截断的最小空间利用率
 
 
 def extract_keywords(query):
@@ -109,8 +114,8 @@ def rerank_results_by_quality(results, keywords):
         quality_score += keyword_matches * KEYWORD_BOOST_SCORE
         
         # 2. 内容长度加分（较长的内容通常更完整，但有上限）
-        # 归一化到0-1：长度1000字符及以上得1.0，更短的按比例
-        content_length_factor = min(len(chunk.content) / 1000, 1.0)
+        # 归一化到0-1：长度≥CONTENT_LENGTH_THRESHOLD得1.0，更短的按比例
+        content_length_factor = min(len(chunk.content) / CONTENT_LENGTH_THRESHOLD, 1.0)
         quality_score += content_length_factor * CONTENT_LENGTH_BONUS
         
         # 3. 来源多样性（同一来源出现次数越多，惩罚越大）
@@ -214,7 +219,7 @@ def main():
                 delimiter = "\n\n"
                 last_delimiter = context.rfind(delimiter, 0, target_length)
                 
-                if last_delimiter > target_length * 0.8:  # 如果找到的位置不会浪费太多空间（超过80%）
+                if last_delimiter > target_length * DOC_BOUNDARY_THRESHOLD:
                     context = context[:last_delimiter]
                     truncated = True
                 else:
@@ -226,7 +231,7 @@ def main():
                         if pos > best_pos:
                             best_pos = pos
                     
-                    if best_pos > target_length * 0.9:  # 如果找到的位置接近目标（超过90%）
+                    if best_pos > target_length * SENTENCE_BOUNDARY_THRESHOLD:
                         context = context[:best_pos + 1]
                         truncated = True
                     else:
