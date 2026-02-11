@@ -27,6 +27,8 @@ def setup_logging():
 
 
 KEYWORD_BOOST_SCORE = 0.05
+DIVERSITY_PENALTY = 0.02  # 来源重复惩罚
+CONTENT_LENGTH_BONUS = 0.01  # 内容长度奖励（较长内容通常更完整）
 
 
 def extract_keywords(query):
@@ -70,6 +72,60 @@ def boost_results_by_keywords(results, keywords):
 
     boosted.sort(key=lambda x: x[1], reverse=True)
     return boosted
+
+
+def rerank_results_by_quality(results, keywords):
+    """
+    重排序算法：根据多个质量因素对检索结果进行重排序
+    
+    质量因素包括：
+    1. 相似度得分（已有）
+    2. 关键词匹配度
+    3. 内容完整性（长度）
+    4. 来源多样性（避免同一来源过度集中）
+    
+    Args:
+        results: List[(DocumentChunk, score)] 检索结果列表
+        keywords: List[str] 关键词列表
+        
+    Returns:
+        重排序后的结果列表
+    """
+    if not results:
+        return results
+    
+    reranked = []
+    source_counts = {}  # 跟踪每个来源已经使用的次数
+    
+    for chunk, score in results:
+        quality_score = score
+        
+        # 1. 关键词匹配加分
+        content_lower = chunk.content.lower()
+        keyword_matches = 0
+        for kw in keywords:
+            if kw.lower() in content_lower:
+                keyword_matches += 1
+        quality_score += keyword_matches * KEYWORD_BOOST_SCORE
+        
+        # 2. 内容长度加分（较长的内容通常更完整，但有上限）
+        content_length_factor = min(len(chunk.content) / 1000, 1.0)  # 归一化到0-1
+        quality_score += content_length_factor * CONTENT_LENGTH_BONUS
+        
+        # 3. 来源多样性（同一来源出现次数越多，惩罚越大）
+        source = chunk.metadata.get('source', 'unknown')
+        source_count = source_counts.get(source, 0)
+        quality_score -= source_count * DIVERSITY_PENALTY
+        source_counts[source] = source_count + 1
+        
+        reranked.append((chunk, quality_score))
+    
+    # 按质量分数降序排序
+    reranked.sort(key=lambda x: x[1], reverse=True)
+    
+    logging.info(f"重排序完成，共{len(reranked)}个结果")
+    
+    return reranked
 
 
 def main():
@@ -129,14 +185,14 @@ def main():
                 query_embedding = embedding_model.embed_query(query)
                 results = vector_store.search(query_embedding, top_k=config.vector_store.top_k)
 
-            # 根据关键词提升相关结果排名
+            # 使用重排序算法提升结果质量
             keywords = sub_queries if sub_queries else [query]
-            results = boost_results_by_keywords(results, keywords)
+            results = rerank_results_by_quality(results, keywords)
 
             # 构建上下文 - 去重
             seen_contents = set()
             context_parts = []
-            for chunk, _ in results:
+            for chunk, score in results:
                 if chunk.content not in seen_contents:
                     seen_contents.add(chunk.content)
                     context_parts.append(f"来源: {chunk.metadata['source']}\n内容: {chunk.content}")
