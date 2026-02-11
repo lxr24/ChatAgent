@@ -31,7 +31,7 @@ class LLMConfig:
     api_base: str = "http://103.242.175.254:20012/v1"  # 自定义API端点
     api_key: str = "sk-audit-RynRlfIcooK6vd8E6dW9iqMJTcFStRmU"  # 自定义API密钥
     model_name: str = "gpt-5-mini"  # 或其他模型名称
-    max_tokens: int = 2048
+    max_tokens: int = 4096
     temperature: float = 0.7
     timeout: int = 60
 
