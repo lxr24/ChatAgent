@@ -70,7 +70,29 @@ class LLMClient:
             response.raise_for_status()
     
             data = response.json()
-            return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            
+            choice = data.get("choices", [{}])[0]
+            finish_reason = choice.get("finish_reason", "")
+            content = choice.get("message", {}).get("content")
+            
+            # content may be None or missing when all tokens are consumed by reasoning
+            if content is None:
+                content = ""
+            
+            if finish_reason == "length":
+                logging.warning(
+                    f"LLM 响应被截断（finish_reason=length），"
+                    f"max_tokens({self.max_tokens})可能不足。"
+                    f"当前返回内容长度: {len(content)}"
+                )
+                if not content:
+                    raise ValueError(
+                        f"LLM 返回空内容：模型的 max_tokens({self.max_tokens}) 不足，"
+                        f"所有 token 被内部推理消耗，没有生成可见回答。"
+                        f"请增大 max_tokens 配置。"
+                    )
+            
+            return content
 
         except requests.exceptions.RequestException as e:
             logging.error(f"LLM 请求失败: {e}")

@@ -324,6 +324,81 @@ class TestReranking:
         assert sources1 == sources2
 
 
+class TestLLMClientResponseHandling:
+    """测试LLM客户端响应处理"""
+
+    def test_generate_response_extracts_content(self):
+        """测试正常响应解析"""
+        from unittest.mock import patch, MagicMock
+        from llm_client import LLMClient, Message
+
+        client = LLMClient(api_base="http://fake", api_key="key")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"role": "assistant", "content": "hello"}, "finish_reason": "stop"}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("llm_client.requests.post", return_value=mock_response):
+            result = client.generate_response([Message(role="user", content="hi")])
+        assert result == "hello"
+
+    def test_generate_response_handles_none_content(self):
+        """测试content为None时返回空字符串（非截断情况）"""
+        from unittest.mock import patch, MagicMock
+        from llm_client import LLMClient, Message
+
+        client = LLMClient(api_base="http://fake", api_key="key")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"role": "assistant"}, "finish_reason": "stop"}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("llm_client.requests.post", return_value=mock_response):
+            result = client.generate_response([Message(role="user", content="hi")])
+        assert result == ""
+
+    def test_generate_response_raises_on_length_empty_content(self):
+        """测试finish_reason=length且content为空时抛出错误"""
+        from unittest.mock import patch, MagicMock
+        import pytest
+        from llm_client import LLMClient, Message
+
+        client = LLMClient(api_base="http://fake", api_key="key", max_tokens=2048)
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"role": "assistant"}, "finish_reason": "length"}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("llm_client.requests.post", return_value=mock_response):
+            with pytest.raises(ValueError, match="max_tokens"):
+                client.generate_response([Message(role="user", content="hi")])
+
+    def test_generate_response_returns_partial_on_length_with_content(self):
+        """测试finish_reason=length但有部分content时仍返回内容"""
+        from unittest.mock import patch, MagicMock
+        from llm_client import LLMClient, Message
+
+        client = LLMClient(api_base="http://fake", api_key="key")
+        mock_response = MagicMock()
+        mock_response.json.return_value = {
+            "choices": [{"message": {"role": "assistant", "content": "partial answer"}, "finish_reason": "length"}]
+        }
+        mock_response.raise_for_status = MagicMock()
+
+        with patch("llm_client.requests.post", return_value=mock_response):
+            result = client.generate_response([Message(role="user", content="hi")])
+        assert result == "partial answer"
+
+    def test_default_max_tokens_increased(self):
+        """测试默认max_tokens已增大到4096"""
+        from config import LLMConfig
+        cfg = LLMConfig()
+        assert cfg.max_tokens == 4096
+
+
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
