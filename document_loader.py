@@ -34,7 +34,7 @@ class DocumentChunk:
 class TextSplitter:
     """文本分割器"""
     
-    def __init__(self, chunk_size: int = 512, chunk_overlap: int = 50):
+    def __init__(self, chunk_size: int = 800, chunk_overlap: int = 200):
         self.chunk_size = chunk_size
         self.chunk_overlap = chunk_overlap
     
