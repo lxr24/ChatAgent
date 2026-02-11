@@ -20,9 +20,9 @@ class EmbeddingConfig:
 class VectorStoreConfig:
     """向量存储配置"""
     index_path: str = "./vector_index"
-    chunk_size: int = 512  # 文本块大小
-    chunk_overlap: int = 50  # 文本块重叠
-    top_k: int = 5  # 检索返回的文档数量
+    chunk_size: int = 1024  # 文本块大小
+    chunk_overlap: int = 200  # 文本块重叠
+    top_k: int = 10  # 检索返回的文档数量
 
 
 @dataclass

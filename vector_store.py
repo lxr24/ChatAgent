@@ -111,6 +111,29 @@ class VectorStore:
         
         return results
     
+    def multi_query_search(
+        self,
+        query_embeddings: List[np.ndarray],
+        top_k: int = 10,
+        score_threshold: float = 0.0
+    ) -> List[Tuple[DocumentChunk, float]]:
+        """使用多个查询向量搜索，合并去重结果"""
+        seen_ids = set()
+        merged_results = []
+
+        for query_embedding in query_embeddings:
+            results = self.search(query_embedding, top_k=top_k, score_threshold=score_threshold)
+            for chunk, score in results:
+                # 使用 (source, chunk_id) 作为唯一标识进行去重
+                chunk_key = (chunk.metadata.get('source', ''), chunk.chunk_id)
+                if chunk_key not in seen_ids:
+                    seen_ids.add(chunk_key)
+                    merged_results.append((chunk, score))
+
+        # 按分数降序排列
+        merged_results.sort(key=lambda x: x[1], reverse=True)
+        return merged_results
+
     def search_with_filter(
         self,
         query_embedding: np.ndarray,
