@@ -68,11 +68,10 @@ class TestBoostResults:
             (self._make_chunk("This document is about IntAct", chunk_id=1), 0.9),
         ]
         boosted = boost_results_by_keywords(results, ["STRING"])
-        # The STRING chunk should get a boost
-        assert boosted[0][0].content == "This document is about IntAct"  # still higher base score
-        # But the STRING one should have increased score
+        # The STRING chunk should get a boost and overtake the non-matching chunk
         string_score = next(s for c, s in boosted if "STRING" in c.content)
         assert string_score > 0.8
+        assert boosted[0][0].content == "This document is about STRING database"
 
     def test_boost_both_keywords(self):
         results = [
@@ -301,6 +300,28 @@ class TestReranking:
         original_ids = {c.chunk_id for c, _ in results}
         reranked_ids = {c.chunk_id for c, _ in reranked}
         assert original_ids == reranked_ids
+
+    def test_rerank_diversity_penalty_order_independent(self):
+        """测试来源多样性惩罚不依赖于输入顺序"""
+        # 两种不同输入顺序应该产生相同的排名结果
+        results_order1 = [
+            (self._make_chunk("Content A1", source="same.md", chunk_id=0), 0.7),
+            (self._make_chunk("Content B", source="different.md", chunk_id=2), 0.65),
+            (self._make_chunk("Content A2", source="same.md", chunk_id=1), 0.7),
+        ]
+        results_order2 = [
+            (self._make_chunk("Content A2", source="same.md", chunk_id=1), 0.7),
+            (self._make_chunk("Content A1", source="same.md", chunk_id=0), 0.7),
+            (self._make_chunk("Content B", source="different.md", chunk_id=2), 0.65),
+        ]
+
+        reranked1 = rerank_results_by_quality(results_order1, [])
+        reranked2 = rerank_results_by_quality(results_order2, [])
+
+        # Both orderings should produce the same ranking by source
+        sources1 = [c.metadata["source"] for c, _ in reranked1]
+        sources2 = [c.metadata["source"] for c, _ in reranked2]
+        assert sources1 == sources2
 
 
 if __name__ == "__main__":

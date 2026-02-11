@@ -26,8 +26,8 @@ def setup_logging():
     logger.addHandler(file_handler)
 
 
-KEYWORD_BOOST_SCORE = 0.05
-DIVERSITY_PENALTY = 0.02  # 来源重复惩罚
+KEYWORD_BOOST_SCORE = 0.15
+DIVERSITY_PENALTY = 0.1  # 来源重复惩罚
 CONTENT_LENGTH_BONUS = 0.01  # 内容长度奖励（较长内容通常更完整）
 CONTENT_LENGTH_THRESHOLD = 1000  # 内容长度归一化阈值（字符数）
 
@@ -99,9 +99,8 @@ def rerank_results_by_quality(results, keywords):
     if not results:
         return results
     
-    reranked = []
-    source_counts = {}  # 跟踪每个来源已经使用的次数
-    
+    # 第一遍：计算基于内容质量的分数（关键词匹配 + 内容长度）
+    scored = []
     for chunk, score in results:
         quality_score = score
         
@@ -118,15 +117,23 @@ def rerank_results_by_quality(results, keywords):
         content_length_factor = min(len(chunk.content) / CONTENT_LENGTH_THRESHOLD, 1.0)
         quality_score += content_length_factor * CONTENT_LENGTH_BONUS
         
-        # 3. 来源多样性（同一来源出现次数越多，惩罚越大）
+        scored.append((chunk, quality_score))
+    
+    # 先按质量分数排序，确保最佳结果优先
+    scored.sort(key=lambda x: x[1], reverse=True)
+    
+    # 第二遍：按排序后的顺序应用来源多样性惩罚
+    # 这样每个来源的最佳结果不受惩罚，后续重复来源才被降权
+    reranked = []
+    source_counts = {}  # 跟踪每个来源已经使用的次数
+    for chunk, quality_score in scored:
         source = chunk.metadata.get('source', 'unknown')
         source_count = source_counts.get(source, 0)
         quality_score -= source_count * DIVERSITY_PENALTY
         source_counts[source] = source_count + 1
-        
         reranked.append((chunk, quality_score))
     
-    # 按质量分数降序排序
+    # 最终按质量分数降序排序
     reranked.sort(key=lambda x: x[1], reverse=True)
     
     logging.info(f"重排序完成，共{len(reranked)}个结果")
