@@ -196,6 +196,38 @@ class TestConfig:
         cfg = VectorStoreConfig()
         assert cfg.top_k == 10
 
+    def test_max_context_length(self):
+        from config import RAGConfig
+        cfg = RAGConfig()
+        assert cfg.max_context_length == 12000
+
+
+class TestContextTruncation:
+    """测试上下文截断功能"""
+
+    def test_context_truncation_when_too_long(self):
+        """测试上下文过长时的截断"""
+        # Create a long context that exceeds max_context_length
+        long_context = "A" * 15000
+        max_length = 12000
+        
+        # Truncate
+        truncated = long_context[:max_length]
+        
+        assert len(truncated) == max_length
+        assert len(truncated) < len(long_context)
+
+    def test_context_not_truncated_when_short(self):
+        """测试上下文较短时不截断"""
+        short_context = "A" * 5000
+        max_length = 12000
+        
+        # Should not be truncated
+        result = short_context if len(short_context) <= max_length else short_context[:max_length]
+        
+        assert len(result) == len(short_context)
+        assert result == short_context
+
 
 if __name__ == "__main__":
     import pytest

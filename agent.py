@@ -142,6 +142,17 @@ def main():
                     context_parts.append(f"来源: {chunk.metadata['source']}\n内容: {chunk.content}")
             context = "\n\n".join(context_parts)
 
+            # 记录原始上下文长度
+            original_context_length = len(context)
+            logging.info(f"上下文字符数: {original_context_length}")
+
+            # 如果上下文过长，进行截断
+            if original_context_length > config.max_context_length:
+                # 截断上下文，保留前面的内容（通常相关性更高）
+                context = context[:config.max_context_length]
+                logging.warning(f"上下文过长（{original_context_length}字符），已截断至{config.max_context_length}字符")
+                print(f"提示: 上下文过长（{original_context_length}字符），已截断至{config.max_context_length}字符以避免API超时")
+
             messages = [
                 Message(role="system", content=config.system_prompt),
                 Message(role="user", content=f"问题: {query}\n\n上下文:\n{context}")
@@ -151,6 +162,7 @@ def main():
                 content = llm_client.generate_response(messages)
                 print(f"回答: {content}")
             except Exception as e:
+                logging.error(f"LLM请求失败: {e}")
                 print(f"抱歉，无法生成答案，请稍后再试。错误信息: {e}")
 
     except Exception as e:
