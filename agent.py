@@ -109,7 +109,8 @@ def rerank_results_by_quality(results, keywords):
         quality_score += keyword_matches * KEYWORD_BOOST_SCORE
         
         # 2. 内容长度加分（较长的内容通常更完整，但有上限）
-        content_length_factor = min(len(chunk.content) / 1000, 1.0)  # 归一化到0-1
+        # 归一化到0-1：长度1000字符及以上得1.0，更短的按比例
+        content_length_factor = min(len(chunk.content) / 1000, 1.0)
         quality_score += content_length_factor * CONTENT_LENGTH_BONUS
         
         # 3. 来源多样性（同一来源出现次数越多，惩罚越大）
@@ -204,10 +205,38 @@ def main():
 
             # 如果上下文过长，进行截断
             if original_context_length > config.max_context_length:
-                # 截断上下文，保留前面的内容（通常相关性更高）
-                context = context[:config.max_context_length]
-                logging.warning(f"上下文过长（{original_context_length}字符），已截断至{config.max_context_length}字符")
-                print(f"提示: 上下文过长（{original_context_length}字符），已截断至{config.max_context_length}字符以避免API超时")
+                # 智能截断：尽量在文档边界处截断，避免切断句子
+                # 找到最后一个完整的文档边界（在限制内）
+                target_length = config.max_context_length
+                truncated = False
+                
+                # 尝试在文档分隔符处截断
+                delimiter = "\n\n"
+                last_delimiter = context.rfind(delimiter, 0, target_length)
+                
+                if last_delimiter > target_length * 0.8:  # 如果找到的位置不会浪费太多空间（超过80%）
+                    context = context[:last_delimiter]
+                    truncated = True
+                else:
+                    # 如果文档边界太远，尝试在句子结束处截断
+                    sentence_endings = ['。', '！', '？', '.', '!', '?', '\n']
+                    best_pos = -1
+                    for ending in sentence_endings:
+                        pos = context.rfind(ending, 0, target_length)
+                        if pos > best_pos:
+                            best_pos = pos
+                    
+                    if best_pos > target_length * 0.9:  # 如果找到的位置接近目标（超过90%）
+                        context = context[:best_pos + 1]
+                        truncated = True
+                    else:
+                        # 最后手段：直接截断
+                        context = context[:target_length]
+                        truncated = True
+                
+                if truncated:
+                    logging.warning(f"上下文过长（{original_context_length}字符），已截断至{len(context)}字符")
+                    print(f"提示: 上下文过长（{original_context_length}字符），已截断至{len(context)}字符以避免API超时")
 
             messages = [
                 Message(role="system", content=config.system_prompt),
