@@ -47,6 +47,9 @@ class RAGConfig:
     database_root: str = "/mnt/vepfs/users/data"  # 数据库根目录
     readme_pattern: str = "README_*.md"  # README文件匹配模式
     
+    # 上下文长度限制（字符数）
+    max_context_length: int = 12000  # 最大上下文字符数，避免API超时
+    
     # 系统提示词
     system_prompt: str = """你是一个专业的数据库文档问答助手。你的任务是根据提供的文档内容，准确回答用户的问题。
 

@@ -73,6 +73,7 @@ class LLMClient:
             return data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
         except requests.exceptions.RequestException as e:
+            logging.error(f"LLM 请求失败: {e}")
             print(f"LLM 请求失败: {e}")
             if stream:
                 return iter([])

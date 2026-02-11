@@ -27,6 +27,13 @@ def setup_logging():
 
 
 KEYWORD_BOOST_SCORE = 0.05
+DIVERSITY_PENALTY = 0.02  # 来源重复惩罚
+CONTENT_LENGTH_BONUS = 0.01  # 内容长度奖励（较长内容通常更完整）
+CONTENT_LENGTH_THRESHOLD = 1000  # 内容长度归一化阈值（字符数）
+
+# 智能截断阈值
+DOC_BOUNDARY_THRESHOLD = 0.8  # 文档边界截断的最小空间利用率
+SENTENCE_BOUNDARY_THRESHOLD = 0.9  # 句子边界截断的最小空间利用率
 
 
 def extract_keywords(query):
@@ -70,6 +77,61 @@ def boost_results_by_keywords(results, keywords):
 
     boosted.sort(key=lambda x: x[1], reverse=True)
     return boosted
+
+
+def rerank_results_by_quality(results, keywords):
+    """
+    重排序算法：根据多个质量因素对检索结果进行重排序
+    
+    质量因素包括：
+    1. 相似度得分（已有）
+    2. 关键词匹配度
+    3. 内容完整性（长度）
+    4. 来源多样性（避免同一来源过度集中）
+    
+    Args:
+        results: List[(DocumentChunk, score)] 检索结果列表
+        keywords: List[str] 关键词列表
+        
+    Returns:
+        重排序后的结果列表
+    """
+    if not results:
+        return results
+    
+    reranked = []
+    source_counts = {}  # 跟踪每个来源已经使用的次数
+    
+    for chunk, score in results:
+        quality_score = score
+        
+        # 1. 关键词匹配加分
+        content_lower = chunk.content.lower()
+        keyword_matches = 0
+        for kw in keywords:
+            if kw.lower() in content_lower:
+                keyword_matches += 1
+        quality_score += keyword_matches * KEYWORD_BOOST_SCORE
+        
+        # 2. 内容长度加分（较长的内容通常更完整，但有上限）
+        # 归一化到0-1：长度≥CONTENT_LENGTH_THRESHOLD得1.0，更短的按比例
+        content_length_factor = min(len(chunk.content) / CONTENT_LENGTH_THRESHOLD, 1.0)
+        quality_score += content_length_factor * CONTENT_LENGTH_BONUS
+        
+        # 3. 来源多样性（同一来源出现次数越多，惩罚越大）
+        source = chunk.metadata.get('source', 'unknown')
+        source_count = source_counts.get(source, 0)
+        quality_score -= source_count * DIVERSITY_PENALTY
+        source_counts[source] = source_count + 1
+        
+        reranked.append((chunk, quality_score))
+    
+    # 按质量分数降序排序
+    reranked.sort(key=lambda x: x[1], reverse=True)
+    
+    logging.info(f"重排序完成，共{len(reranked)}个结果")
+    
+    return reranked
 
 
 def main():
@@ -129,18 +191,57 @@ def main():
                 query_embedding = embedding_model.embed_query(query)
                 results = vector_store.search(query_embedding, top_k=config.vector_store.top_k)
 
-            # 根据关键词提升相关结果排名
+            # 使用重排序算法提升结果质量
             keywords = sub_queries if sub_queries else [query]
-            results = boost_results_by_keywords(results, keywords)
+            results = rerank_results_by_quality(results, keywords)
 
             # 构建上下文 - 去重
             seen_contents = set()
             context_parts = []
-            for chunk, _ in results:
+            for chunk, score in results:
                 if chunk.content not in seen_contents:
                     seen_contents.add(chunk.content)
                     context_parts.append(f"来源: {chunk.metadata['source']}\n内容: {chunk.content}")
             context = "\n\n".join(context_parts)
+
+            # 记录原始上下文长度
+            original_context_length = len(context)
+            logging.info(f"上下文字符数: {original_context_length}")
+
+            # 如果上下文过长，进行截断
+            if original_context_length > config.max_context_length:
+                # 智能截断：尽量在文档边界处截断，避免切断句子
+                # 找到最后一个完整的文档边界（在限制内）
+                target_length = config.max_context_length
+                truncated = False
+                
+                # 尝试在文档分隔符处截断
+                delimiter = "\n\n"
+                last_delimiter = context.rfind(delimiter, 0, target_length)
+                
+                if last_delimiter > target_length * DOC_BOUNDARY_THRESHOLD:
+                    context = context[:last_delimiter]
+                    truncated = True
+                else:
+                    # 如果文档边界太远，尝试在句子结束处截断
+                    sentence_endings = ['。', '！', '？', '.', '!', '?', '\n']
+                    best_pos = -1
+                    for ending in sentence_endings:
+                        pos = context.rfind(ending, 0, target_length)
+                        if pos > best_pos:
+                            best_pos = pos
+                    
+                    if best_pos > target_length * SENTENCE_BOUNDARY_THRESHOLD:
+                        context = context[:best_pos + 1]
+                        truncated = True
+                    else:
+                        # 最后手段：直接截断
+                        context = context[:target_length]
+                        truncated = True
+                
+                if truncated:
+                    logging.warning(f"上下文过长（{original_context_length}字符），已截断至{len(context)}字符")
+                    print(f"提示: 上下文过长（{original_context_length}字符），已截断至{len(context)}字符以避免API超时")
 
             messages = [
                 Message(role="system", content=config.system_prompt),
@@ -151,6 +252,7 @@ def main():
                 content = llm_client.generate_response(messages)
                 print(f"回答: {content}")
             except Exception as e:
+                logging.error(f"LLM请求失败: {e}")
                 print(f"抱歉，无法生成答案，请稍后再试。错误信息: {e}")
 
     except Exception as e:

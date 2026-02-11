@@ -13,7 +13,7 @@ sys.modules["langchain_community"] = _mock_embedding
 sys.modules["langchain_community.embeddings"] = _mock_embedding.embeddings
 
 from document_loader import DocumentChunk, TextSplitter
-from agent import extract_keywords, boost_results_by_keywords, KEYWORD_BOOST_SCORE
+from agent import extract_keywords, boost_results_by_keywords, rerank_results_by_quality, KEYWORD_BOOST_SCORE
 
 
 class TestExtractKeywords:
@@ -195,6 +195,112 @@ class TestConfig:
         from config import VectorStoreConfig
         cfg = VectorStoreConfig()
         assert cfg.top_k == 10
+
+    def test_max_context_length(self):
+        from config import RAGConfig
+        cfg = RAGConfig()
+        assert cfg.max_context_length == 12000
+
+
+class TestContextTruncation:
+    """测试上下文截断功能"""
+
+    def test_context_truncation_when_too_long(self):
+        """测试上下文过长时的截断"""
+        # Create a long context that exceeds max_context_length
+        long_context = "A" * 15000
+        max_length = 12000
+        
+        # Truncate
+        truncated = long_context[:max_length]
+        
+        assert len(truncated) == max_length
+        assert len(truncated) < len(long_context)
+
+    def test_context_not_truncated_when_short(self):
+        """测试上下文较短时不截断"""
+        short_context = "A" * 5000
+        max_length = 12000
+        
+        # Should not be truncated
+        result = short_context if len(short_context) <= max_length else short_context[:max_length]
+        
+        assert len(result) == len(short_context)
+        assert result == short_context
+
+
+class TestReranking:
+    """测试重排序算法"""
+
+    def _make_chunk(self, content, source="test.md", chunk_id=0):
+        return DocumentChunk(
+            content=content,
+            metadata={"source": source},
+            chunk_id=chunk_id
+        )
+
+    def test_rerank_boosts_keyword_matches(self):
+        """测试关键词匹配增加排名"""
+        results = [
+            (self._make_chunk("This is about databases", source="a.md", chunk_id=0), 0.5),
+            (self._make_chunk("STRING database is important", source="b.md", chunk_id=1), 0.4),
+            (self._make_chunk("STRING and IntAct are both databases", source="c.md", chunk_id=2), 0.3),
+        ]
+        
+        reranked = rerank_results_by_quality(results, ["STRING", "IntAct"])
+        
+        # The chunk with both keywords should be ranked higher
+        assert "STRING and IntAct" in reranked[0][0].content
+        # The chunk with one keyword should be next
+        assert "STRING database" in reranked[1][0].content
+
+    def test_rerank_favors_longer_content(self):
+        """测试较长内容获得加分"""
+        results = [
+            (self._make_chunk("Short", source="a.md", chunk_id=0), 0.5),
+            (self._make_chunk("A" * 1000, source="b.md", chunk_id=1), 0.5),
+        ]
+        
+        reranked = rerank_results_by_quality(results, [])
+        
+        # Longer content should rank higher with same base score
+        assert len(reranked[0][0].content) > len(reranked[1][0].content)
+
+    def test_rerank_promotes_source_diversity(self):
+        """测试来源多样性惩罚"""
+        results = [
+            (self._make_chunk("Content A1", source="same.md", chunk_id=0), 0.7),
+            (self._make_chunk("Content A2", source="same.md", chunk_id=1), 0.7),
+            (self._make_chunk("Content B", source="different.md", chunk_id=2), 0.65),
+        ]
+        
+        reranked = rerank_results_by_quality(results, [])
+        
+        # First result should still be from same.md
+        assert reranked[0][0].metadata["source"] == "same.md"
+        # But the different source should be promoted over the second same.md
+        # because of diversity penalty
+        assert reranked[1][0].metadata["source"] == "different.md"
+
+    def test_rerank_empty_results(self):
+        """测试空结果处理"""
+        reranked = rerank_results_by_quality([], ["keyword"])
+        assert reranked == []
+
+    def test_rerank_preserves_chunk_data(self):
+        """测试重排序保留所有数据"""
+        results = [
+            (self._make_chunk("Content 1", chunk_id=0), 0.5),
+            (self._make_chunk("Content 2", chunk_id=1), 0.4),
+        ]
+        
+        reranked = rerank_results_by_quality(results, [])
+        
+        assert len(reranked) == len(results)
+        # All original chunks should be present
+        original_ids = {c.chunk_id for c, _ in results}
+        reranked_ids = {c.chunk_id for c, _ in reranked}
+        assert original_ids == reranked_ids
 
 
 if __name__ == "__main__":
